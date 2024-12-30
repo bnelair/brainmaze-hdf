@@ -11,7 +11,7 @@ from typing import List, Tuple
 
 from datetime import datetime
 
-from brainmaze_hdf.io import BrainMazeHDFWriter
+from brainmaze_hdf.io import BrainmazeHDFWriter
 
 from brainmaze_hdf.utils import get_data_segments,create_block_indexes
 
@@ -19,7 +19,7 @@ from conftest import temp_dir
 
 def test_BrainMazeHDFWriter_create_channel(temp_dir: str):
     path = os.path.join(temp_dir, 'test.h5')
-    writer = BrainMazeHDFWriter(path)
+    writer = BrainmazeHDFWriter(path)
 
     writer._open_write()
 
@@ -33,7 +33,7 @@ def test_BrainMazeHDFWriter_create_channel(temp_dir: str):
 
 def test_BrainMazeHDFWriter_create_segment(temp_dir: str):
     path = os.path.join(temp_dir, 'test.h5')
-    writer = BrainMazeHDFWriter(path)
+    writer = BrainmazeHDFWriter(path)
 
     chname = 'test_channel'
 
@@ -56,7 +56,7 @@ def test_BrainMazeHDFWriter_create_segment(temp_dir: str):
 
 def test_BrainMazeHDFWriter_write_block(temp_dir: str):
     path = os.path.join(temp_dir, 'test.h5')
-    wrt = BrainMazeHDFWriter(path)
+    wrt = BrainmazeHDFWriter(path)
 
     chname = 'test_channel'
 
@@ -84,16 +84,16 @@ def test_BrainMazeHDFWriter_write_block(temp_dir: str):
     assert metadata.iloc[0]['end_uutc'] == end_uutc
     assert metadata.iloc[0]['fsamp'] == fsamp
 
-    indexes = np.array(wrt.session[chname][seg]['block_meta'])
+    indexes = np.array(wrt._session[chname][seg]['block_meta'])
     assert indexes.shape[0] == 1
     assert indexes[0][0] == start_uutc
     assert indexes[0][1] == end_uutc
     assert indexes[0][2] == x.shape[0]
 
-    block = wrt.session[chname][seg].keys()
+    block = wrt._session[chname][seg].keys()
     block = [bn for bn in block if bn != 'block_meta'][0]
 
-    x_read = wrt.session[chname][seg][block][()]
+    x_read = wrt._session[chname][seg][block][()]
     assert np.all(x == x_read)
 
     wrt._close()
@@ -110,7 +110,7 @@ def test_BrainMazeHDFWriter_write(temp_dir: str):
     start_read = start_uutc + (15*1e6)
     end_read = start_uutc + (45*1e6)
 
-    wrt = BrainMazeHDFWriter(path)
+    wrt = BrainmazeHDFWriter(path)
     wrt.block_size = 5
     wrt._open_write()
     wrt.write_data(chname, x, fs, start_uutc)
@@ -122,8 +122,8 @@ def test_BrainMazeHDFWriter_write(temp_dir: str):
     assert segment.iloc[0]['end_uutc'] == end_uutc
     assert segment.iloc[0]['fsamp'] == fs
 
-    indexes = np.array(wrt.session[chname][seg]['block_meta'])
-    blocks = [fn for fn in wrt.session[chname][seg].keys() if fn != 'block_meta']
+    indexes = np.array(wrt._session[chname][seg]['block_meta'])
+    blocks = [fn for fn in wrt._session[chname][seg].keys() if fn != 'block_meta']
 
     involved_blocks_full = wrt._get_involved_blocks(chname, seg, start_uutc, end_uutc)
     involved_blocks_part = wrt._get_involved_blocks(chname, seg, start_read, end_read)
@@ -165,7 +165,7 @@ def test_BrainMazeHDFWriter_write_nans_in_values(temp_dir: str):
     start_read = start_uutc + (15 * 1e6)
     end_read = start_uutc + (45 * 1e6)
 
-    wrt = BrainMazeHDFWriter(path)
+    wrt = BrainmazeHDFWriter(path)
     wrt.block_size = fs
     wrt._open_write()
     wrt.write_data(chname, x, fs, start_uutc)
@@ -210,7 +210,7 @@ def test_BrainMazeHDFWriter_write_discontinuities(temp_dir: str):
         (int((end_uutc_2 - start_read) / 1e6 * fs), int((end_read - start_read) / 1e6 * fs) - 1)
     ]
 
-    wrt = BrainMazeHDFWriter(path)
+    wrt = BrainmazeHDFWriter(path)
     wrt.block_size = fs
     wrt._open_write()
 
@@ -248,7 +248,7 @@ def test_BrainMazeHDFWriter_read_interpolation(temp_dir: str):
     end_uutc_2 = int(start_uutc_2 + (1e6 * x2.shape[0] / fs))
 
 
-    wrt = BrainMazeHDFWriter(path)
+    wrt = BrainmazeHDFWriter(path)
     wrt.block_size = 5
     wrt._open_write()
 

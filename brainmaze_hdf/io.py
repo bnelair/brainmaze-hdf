@@ -2,6 +2,8 @@
 import os
 # from turtledemo.penrose import start
 
+from abc import ABC, abstractmethod
+
 import h5py
 import numpy as np
 import scipy.signal as signal
@@ -10,49 +12,49 @@ from typing import List, Tuple
 
 from brainmaze_hdf.utils import get_data_segments, create_block_indexes, reinterpolate, get_involved_intervals
 
-class BrainMazeHDFWriter:
-    def __init__(self, path: str):
+class BrainmazeHDFSession(ABC):
+    def __init__(self, path: str, block_size=1000, compression_format='gzip'):
         self.path = path
 
-        self.session = None
-        self.mode = None
-        self.compression_format = 'gzip'
+        self._session = None
+        self._mode = None
 
-        self.block_size = 1000
+        self.compression_format = compression_format
+        self.block_size = block_size
 
     def _open_read(self):
-        self.mode = 'r'
-        self.session = h5py.File(self.path, 'r')
+        self._mode = 'r'
+        self._session = h5py.File(self.path, 'r')
 
     def _open_write(self):
         if os.path.isfile(self.path):
-            self.mode = 'a'
+            self._mode = 'a'
         else:
-            self.mode = 'w'
+            self._mode = 'w'
 
-        self.session = h5py.File(self.path, self.mode)
+        self._session = h5py.File(self.path, self._mode)
 
     def _close(self):
-        self.session.close()
+        self._session.close()
 
-        self.mode = ''
-        self.session = None
+        self._mode = ''
+        self._session = None
 
     def _create_channel(self, channel):
-        if channel not in self.session:
-            self.session.create_group(channel)
+        if channel not in self._session:
+            self._session.create_group(channel)
 
     def _get_channel_segment_metadata(self, channel: str) -> pd.DataFrame:
         # check if a segment exists
         segments = []
-        for seg in self.session[channel]:
+        for seg in self._session[channel]:
             segments += [{
                 'segment_name': seg,
-                'start_uutc': self.session[channel][seg].attrs['start_uutc'],
-                'end_uutc': self.session[channel][seg].attrs['end_uutc'],
-                'duration': self.session[channel][seg].attrs['end_uutc'] - self.session[channel][seg].attrs['start_uutc'],
-                'fsamp': self.session[channel][seg].attrs['fsamp'],
-                'ufact': self.session[channel][seg].attrs['ufact'],
+                'start_uutc': self._session[channel][seg].attrs['start_uutc'],
+                'end_uutc': self._session[channel][seg].attrs['end_uutc'],
+                'duration': self._session[channel][seg].attrs['end_uutc'] - self._session[channel][seg].attrs['start_uutc'],
+                'fsamp': self._session[channel][seg].attrs['fsamp'],
+                'ufact': self._session[channel][seg].attrs['ufact'],
             }]
 
         if len(segments):
@@ -73,13 +75,13 @@ class BrainMazeHDFWriter:
             if start_uutc <= last_end:
                 raise ValueError(f"New segment must start after the last segment: {start_uutc} < {last_end}")
 
-        self.session[channel].create_group(seg_name)
-        self.session[channel][seg_name].attrs['start_uutc'] = start_uutc
-        self.session[channel][seg_name].attrs['end_uutc'] = start_uutc
-        self.session[channel][seg_name].attrs['fsamp'] = fsamp
-        self.session[channel][seg_name].attrs['ufact'] = ufact
+        self._session[channel].create_group(seg_name)
+        self._session[channel][seg_name].attrs['start_uutc'] = start_uutc
+        self._session[channel][seg_name].attrs['end_uutc'] = start_uutc
+        self._session[channel][seg_name].attrs['fsamp'] = fsamp
+        self._session[channel][seg_name].attrs['ufact'] = ufact
 
-        self.session[channel][seg_name].create_dataset(
+        self._session[channel][seg_name].create_dataset(
             'block_meta',
             data=np.array([]).reshape((0, 3)).astype(np.int64),
             maxshape=(None, 3),
@@ -90,26 +92,26 @@ class BrainMazeHDFWriter:
 
     def _write_block(self, channel: str, segment: str, data: np.ndarray, start_uutc: float, fsamp: float):
         # check if channel exists
-        if channel not in self.session:
+        if channel not in self._session:
             self._create_channel(channel)
 
         start_uutc = int(np.round(start_uutc))
 
         # check if data is consistent with segment
         # print(start_uutc, self.session[channel][segment].attrs['end_uutc'])
-        if start_uutc < self.session[channel][segment].attrs['end_uutc']:
-            raise ValueError(f"Data must start after the last data block: {start_uutc} < {self.session[channel][segment].attrs['end_uutc']}")
+        if start_uutc < self._session[channel][segment].attrs['end_uutc']:
+            raise ValueError(f"Data must start after the last data block: {start_uutc} < {self._session[channel][segment].attrs['end_uutc']}")
 
         # write data
-        self.session[channel][segment].create_dataset(
+        self._session[channel][segment].create_dataset(
             str(start_uutc),
             data=data,
             compression=self.compression_format
         )
 
-        end_uutc = int(start_uutc + (1e6 * len(data) / self.session[channel][segment].attrs['fsamp']))
+        end_uutc = int(start_uutc + (1e6 * len(data) / self._session[channel][segment].attrs['fsamp']))
 
-        self.session[channel][segment].attrs['end_uutc'] = end_uutc # updating a segment end based on the last data block.
+        self._session[channel][segment].attrs['end_uutc'] = end_uutc # updating a segment end based on the last data block.
 
         idx = np.array([
             start_uutc,
@@ -117,18 +119,10 @@ class BrainMazeHDFWriter:
             len(data)
         ], dtype=np.int64).reshape(1, 3)
 
-        n_blocks = self.session[channel][segment]['block_meta'].shape[0]
-        self.session[channel][segment]['block_meta'].resize((n_blocks+1, 3),)
-        self.session[channel][segment]['block_meta'][-1] = idx
+        n_blocks = self._session[channel][segment]['block_meta'].shape[0]
+        self._session[channel][segment]['block_meta'].resize((n_blocks + 1, 3), )
+        self._session[channel][segment]['block_meta'][-1] = idx
 
-
-
-
-
-
-
-
-        # self.session[channel][segment].attrs['end_uutc'] = start_uutc + len(data) / self.session[channel][segment].attrs['fsamp']
 
     def _get_involved_segments(self, channel: str, start_uutc: float, end_uutc: float) -> pd.DataFrame:
         '''
@@ -153,7 +147,7 @@ class BrainMazeHDFWriter:
         :return:
         '''
 
-        segment_block_metadata = self.session[channel][segment]['block_meta'][()]
+        segment_block_metadata = self._session[channel][segment]['block_meta'][()]
         segment_block_names = [str(fn) for fn in segment_block_metadata[:, 0]]
 
         intervals = segment_block_metadata[:, :2]
@@ -188,29 +182,29 @@ class BrainMazeHDFWriter:
 
     def _get_block_data(self, channel: str, segment: str, block, start_uutc: float, end_uutc: float) -> Tuple[np.ndarray, float]:
         # check if channel exists
-        if channel not in self.session:
+        if channel not in self._session:
             raise ValueError(f"Channel {channel} does not exist")
 
         # check if segment exists
-        if segment not in self.session[channel]:
+        if segment not in self._session[channel]:
             raise ValueError(f"Segment {segment} does not exist")
 
         # check if block exists
-        if block not in self.session[channel][segment]:
+        if block not in self._session[channel][segment]:
             raise ValueError(f"Block {block} does not exist")
 
         # segment_block_names = [fn for fn in self.session[channel][segment] if fn != 'block_meta']
         # segment_block_metadata = self.session[channel][segment]['block_meta'][()]
 
-        data = self.session[channel][segment][block][()]
+        data = self._session[channel][segment][block][()]
         return data
 
     @property
     def channels(self) -> List[str]:
-        return list(self.session.keys())
+        return list(self._session.keys())
 
     def n_segments(self, channel: str) -> int:
-        return len(self.session[channel])
+        return len(self._session[channel])
 
     def write_data(self, channel: str, data: np.ndarray, fsamp: float, start_uutc: float, new_segment: bool = False):
 
@@ -220,7 +214,7 @@ class BrainMazeHDFWriter:
         if self.n_segments(channel) == 0 or new_segment:
             segment = self._create_segment(channel, start_uutc, fsamp)
         else:
-            segment = list(self.session[channel].keys())[-1]
+            segment = list(self._session[channel].keys())[-1]
 
         block_indexes = create_block_indexes(data, self.block_size)
 
@@ -299,17 +293,19 @@ class BrainMazeHDFWriter:
             xt_, xd_ = reinterpolate(xt, xd, xt_outp)
             idx1 = int((xt_[0] - start_uutc) / 1e6 * fsamp)
             idx2 = int((xt_[-1] - start_uutc) / 1e6 * fsamp)
-
-            # print(xd_outp[idx1:idx2+1].shape, xd_.shape)
             xd_outp[idx1:idx2+1] = xd_
-
-        # TODO: Interpolate each merged block to the same timestamps if the data timesamps required are shifted
-        #  compared to the actual data
-
-        #TODO: last step is to merge all the data and timestamps into an array based on indexes (to keep it fast).
 
         return xd_outp
 
+class BrainmazeHDFWriter(BrainmazeHDFSession):
+    def __init__(self, path: str, block_size=1000, compression_format='gzip', overwrite=False):
+        super().__init__(path, block_size, compression_format)
+        self._open_write()
+
+class BrainmazeHDFReader(BrainmazeHDFSession):
+    def __init__(self, path: str):
+        super().__init__(path)
+        self._open_read()
 
 
 
